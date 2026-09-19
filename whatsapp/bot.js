@@ -88,6 +88,58 @@ client.on("disconnected", (reason) => {
   }, 10000);
 });
 
+client.on("message", async (msg) => {
+  if (msg.body === '!estado' || msg.body === '!alerta') {
+    const sqlite3 = require('sqlite3').verbose();
+    const DB_PATH = '/app/data/arbitrage.db';
+    
+    const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READONLY, (err) => {
+      if (err) {
+        console.error("Error al abrir base de datos:", err.message);
+        msg.reply("❌ Error al acceder a los datos locales.");
+        return;
+      }
+    });
+
+    db.get("SELECT * FROM operations ORDER BY id DESC LIMIT 1", (err, row) => {
+      if (err) {
+        console.error("Error en query:", err);
+        msg.reply("❌ Error al leer la base de datos.");
+      } else if (row) {
+        const sign = row.margen >= 0 ? "+" : "";
+        
+        const message = 
+          "📊 *ESTADO ACTUAL P2P*\n" +
+          "\n" +
+          "📥 *Compra:*\n" +
+          `USD → USDT: ${row.precio_usdt_usd.toFixed(4)}\n` +
+          "\n" +
+          "📤 *Venta:*\n" +
+          `USDT → BOB: ${row.precio_usdt_bob.toFixed(4)}\n` +
+          "\n" +
+          "💰 *Costo real:*\n" +
+          `${row.costo_real.toFixed(2)} Bs\n` +
+          "\n" +
+          "📊 *Margen:*\n" +
+          `${sign}${row.margen.toFixed(2)}%\n` +
+          "\n" +
+          "🏦 *Capital:*\n" +
+          `${row.capital.toFixed(0)} Bs\n` +
+          "\n" +
+          "✅ *Ganancia:*\n" +
+          `${row.ganancia_estimada.toFixed(2)} Bs\n` +
+          "\n" +
+          `_Última actualización: ${row.timestamp.split('T').join(' ').substring(0, 19)}_`;
+          
+        msg.reply(message);
+      } else {
+        msg.reply("⚠️ Aún no hay datos registrados. El bot se está ejecutando.");
+      }
+      db.close();
+    });
+  }
+});
+
 // ===== Endpoints HTTP =====
 
 /**

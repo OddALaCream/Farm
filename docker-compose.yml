@@ -24,6 +24,7 @@ services:
     container_name: arbitrage-whatsapp
     volumes:
       - whatsapp_session:/app/.wwebjs_auth
+      - ./data:/app/data
     ports:
       - "3000:3000"
     restart: unless-stopped

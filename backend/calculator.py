@@ -20,7 +20,8 @@ def calculate_real_cost(
     Calcula el costo real de 1 USDT en BOB.
 
     Fórmula:
-        costo_real = USD_BOB_COST * precio_USD_USDT * (1 + deposito_fee) * (1 + transferencia_fee)
+        costo_real = (USD_BOB_COST + 0.10) * precio_USD_USDT * (1 + deposito_fee) * (1 + transferencia_fee)
+        (Se suman 0.10 al tipo de cambio por comisión de Visa)
 
     Args:
         usd_bob_cost: Costo de 1 USD en BOB (tipo de cambio base).
@@ -31,8 +32,11 @@ def calculate_real_cost(
     Returns:
         Costo real de 1 USDT en BOB.
     """
+    # Sumar 0.10 al tipo de cambio oficial por comisión de Visa
+    usd_bob_cost_ajustado = usd_bob_cost + 0.10
+
     real_cost = (
-        usd_bob_cost
+        usd_bob_cost_ajustado
         * price_usd_usdt
         * (1 + deposit_fee)
         * (1 + transfer_fee)
@@ -40,9 +44,10 @@ def calculate_real_cost(
 
     logger.debug(
         "Costo real USDT: %.4f BOB "
-        "(USD/BOB=%.2f, USD/USDT=%.4f, dep_fee=%.4f, trans_fee=%.4f)",
+        "(USD/BOB=%.2f, ajustado=%.2f, USD/USDT=%.4f, dep_fee=%.4f, trans_fee=%.4f)",
         real_cost,
         usd_bob_cost,
+        usd_bob_cost_ajustado,
         price_usd_usdt,
         deposit_fee,
         transfer_fee,

@@ -20,7 +20,7 @@ Calcula el margen de ganancia real considerando comisiones y envía alertas por 
 │                                          │
 │  ┌──────────────┐    ┌───────────────┐   │
 │  │   Backend    │    │   WhatsApp    │   │
-│  │  (Python)    │───▶│   (Node.js)   │   │
+│  │  (Python)    │───▶│   (Node.js) . │   │
 │  │              │    │               │   │
 │  │  • Binance   │    │  • wwebjs     │   │
 │  │  • Cálculo   │    │  • Express    │   │
