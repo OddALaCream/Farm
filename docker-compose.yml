@@ -22,6 +22,7 @@ services:
   whatsapp:
     build: ./whatsapp
     container_name: arbitrage-whatsapp
+    env_file: .env
     volumes:
       - whatsapp_session:/app/.wwebjs_auth
       - ./data:/app/data

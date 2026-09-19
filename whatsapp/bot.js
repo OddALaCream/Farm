@@ -102,10 +102,24 @@ client.on("disconnected", (reason) => {
 });
 
 client.on("message_create", async (msg) => {
+  if (!msg.body) return; // Ignorar mensajes sin texto (imágenes, stickers, etc)
+
   const text = msg.body.trim().toLowerCase();
+  
+  // Identificar el chat donde se envió el mensaje
+  const chatId = msg.fromMe ? msg.to : msg.from;
+  
+  // Leer el número del dueño desde el entorno
+  const ownerNumber = process.env.WHATSAPP_NUMBER;
+  const ownerChatId = ownerNumber ? (ownerNumber.includes('@c.us') ? ownerNumber : `${ownerNumber}@c.us`) : null;
+
+  // Filtrar: si hay un número configurado, ignorar mensajes de otros chats
+  if (ownerChatId && chatId !== ownerChatId) {
+    return;
+  }
+
   if (text === '!estado' || text === '!alerta') {
-    const chatId = msg.fromMe ? msg.to : msg.from;
-    console.log(`\n📥 Comando ${text} recibido en chat: ${chatId}`);
+    console.log(`\n📥 Comando ${text} recibido en tu chat personal: ${chatId}`);
     
     const sqlite3 = require('sqlite3').verbose();
     const DB_PATH = '/app/data/arbitrage.db';
