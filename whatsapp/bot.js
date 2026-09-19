@@ -12,6 +12,8 @@
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const express = require("express");
 const qrcode = require("qrcode-terminal");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 app.use(express.json());
@@ -21,6 +23,17 @@ const PORT = process.env.PORT || 3000;
 // Estado de la conexión
 let isReady = false;
 let lastQR = null;
+
+// Limpiar SingletonLock de Chromium si existe por un mal apagado previo
+const lockPath = path.join("/app/.wwebjs_auth", "session", "SingletonLock");
+if (fs.existsSync(lockPath)) {
+  try {
+    fs.unlinkSync(lockPath);
+    console.log("🔓 Archivo SingletonLock eliminado (previniendo error Code 21)");
+  } catch (e) {
+    console.error("⚠️ No se pudo eliminar SingletonLock:", e.message);
+  }
+}
 
 // Inicializar cliente WhatsApp con autenticación local persistente
 const client = new Client({
