@@ -19,10 +19,89 @@ const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
+const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || "").replace(/\D/g, "");
+const DB_PATH = process.env.DB_PATH || "/app/data/arbitrage.db";
 
 // Estado de la conexión
 let isReady = false;
 let lastQR = null;
+
+function normalizePhone(id) {
+  if (!id) return "";
+  return String(id).split("@")[0].replace(/\D/g, "");
+}
+
+/**
+ * Verifica que el mensaje sea del chat "Mensaje a ti mismo".
+ * Solo responde comandos enviados por ti en tu propio chat.
+ */
+async function isSelfChatMessage(msg) {
+  const chat = await msg.getChat();
+  if (chat.isGroup) return false;
+
+  try {
+    const contact = await chat.getContact();
+    if (contact.isMe) return true;
+  } catch (_) {
+    // Algunas versiones de WA no exponen isMe de forma fiable
+  }
+
+  if (!WHATSAPP_NUMBER) return true;
+
+  const chatPhone = normalizePhone(chat.id._serialized);
+  return (
+    chatPhone === WHATSAPP_NUMBER ||
+    chatPhone.endsWith(WHATSAPP_NUMBER.slice(-8))
+  );
+}
+
+function queryDb(sql) {
+  const sqlite3 = require("sqlite3").verbose();
+
+  return new Promise((resolve, reject) => {
+    const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READONLY, (err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      db.get(sql, (queryErr, row) => {
+        db.close();
+        if (queryErr) reject(queryErr);
+        else resolve(row);
+      });
+    });
+  });
+}
+
+function formatStatusMessage(row, title) {
+  const sign = row.margen >= 0 ? "+" : "";
+  const timestamp = row.timestamp.split("T").join(" ").substring(0, 19);
+
+  return (
+    `${title}\n` +
+    "\n" +
+    "📥 *Compra:*\n" +
+    `USD → USDT: ${row.precio_usdt_usd.toFixed(4)}\n` +
+    "\n" +
+    "📤 *Venta:*\n" +
+    `USDT → BOB: ${row.precio_usdt_bob.toFixed(4)}\n` +
+    "\n" +
+    "💰 *Costo real:*\n" +
+    `${row.costo_real.toFixed(2)} Bs\n` +
+    "\n" +
+    "📊 *Margen:*\n" +
+    `${sign}${row.margen.toFixed(2)}%\n` +
+    "\n" +
+    "🏦 *Capital:*\n" +
+    `${row.capital.toFixed(0)} Bs\n` +
+    "\n" +
+    "✅ *Ganancia:*\n" +
+    `${row.ganancia_estimada.toFixed(2)} Bs\n` +
+    "\n" +
+    `_Última actualización: ${timestamp}_`
+  );
+}
 
 // Limpiar SingletonLock de Chromium si existe por un mal apagado previo
 const lockPath = path.join("/app/.wwebjs_auth", "session", "SingletonLock");
@@ -100,64 +179,55 @@ client.on("disconnected", (reason) => {
 });
 
 client.on("message_create", async (msg) => {
-  if (!msg.body) return; // Ignorar mensajes sin texto (imágenes, stickers, etc)
+  if (!isReady || !msg.body) return;
 
-  // Filtrar: solo procesar mensajes que tú mismo envíes desde tu celular
+  // Solo comandos que tú envías desde tu celular
   if (!msg.fromMe) return;
 
   const text = msg.body.trim().toLowerCase();
-  if (text === '!estado' || text === '!alerta') {
-    const chatId = msg.to; // Como lo enviaste tú, "msg.to" es el chat donde lo enviaste
-    console.log(`\n📥 Comando ${text} detectado en el chat: ${chatId}`);
-    
-    const sqlite3 = require('sqlite3').verbose();
-    const DB_PATH = '/app/data/arbitrage.db';
-    
-    const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READONLY, (err) => {
-      if (err) {
-        console.error("❌ Error al abrir base de datos:", err.message);
-        client.sendMessage(chatId, "❌ Error al acceder a los datos locales.");
-        return;
-      }
-    });
+  if (text !== "!estado" && text !== "!alerta") return;
 
-    db.get("SELECT * FROM operations ORDER BY id DESC LIMIT 1", (err, row) => {
-      if (err) {
-        console.error("❌ Error en query:", err);
-        client.sendMessage(chatId, "❌ Error al leer la base de datos.");
-      } else if (row) {
-        const sign = row.margen >= 0 ? "+" : "";
-        
-        const message = 
-          "📊 *ESTADO ACTUAL P2P*\n" +
-          "\n" +
-          "📥 *Compra:*\n" +
-          `USD → USDT: ${row.precio_usdt_usd.toFixed(4)}\n` +
-          "\n" +
-          "📤 *Venta:*\n" +
-          `USDT → BOB: ${row.precio_usdt_bob.toFixed(4)}\n` +
-          "\n" +
-          "💰 *Costo real:*\n" +
-          `${row.costo_real.toFixed(2)} Bs\n` +
-          "\n" +
-          "📊 *Margen:*\n" +
-          `${sign}${row.margen.toFixed(2)}%\n` +
-          "\n" +
-          "🏦 *Capital:*\n" +
-          `${row.capital.toFixed(0)} Bs\n` +
-          "\n" +
-          "✅ *Ganancia:*\n" +
-          `${row.ganancia_estimada.toFixed(2)} Bs\n` +
-          "\n" +
-          `_Última actualización: ${row.timestamp.split('T').join(' ').substring(0, 19)}_`;
-          
-        console.log("📤 Enviando respuesta de estado...");
-        client.sendMessage(chatId, message).catch(console.error);
-      } else {
-        client.sendMessage(chatId, "⚠️ Aún no hay datos registrados. El bot se está ejecutando.");
-      }
-      db.close();
-    });
+  try {
+    if (!(await isSelfChatMessage(msg))) {
+      console.log(
+        `Comando ${text} ignorado: solo responde en tu chat contigo mismo`
+      );
+      return;
+    }
+
+    const chat = await msg.getChat();
+    console.log(
+      `\n📥 Comando ${text} detectado en chat propio: ${chat.id._serialized}`
+    );
+
+    const sql =
+      text === "!alerta"
+        ? "SELECT * FROM alerts ORDER BY id DESC LIMIT 1"
+        : "SELECT * FROM operations ORDER BY id DESC LIMIT 1";
+
+    const row = await queryDb(sql);
+
+    if (!row) {
+      const emptyMessage =
+        text === "!alerta"
+          ? "⚠️ Aún no se ha enviado ninguna alerta."
+          : "⚠️ Aún no hay datos registrados. El bot se está ejecutando.";
+      await msg.reply(emptyMessage);
+      return;
+    }
+
+    const title =
+      text === "!alerta" ? "🚨 *ÚLTIMA ALERTA P2P*" : "📊 *ESTADO ACTUAL P2P*";
+
+    console.log("📤 Enviando respuesta...");
+    await msg.reply(formatStatusMessage(row, title));
+  } catch (err) {
+    console.error("❌ Error procesando comando:", err.message);
+    try {
+      await msg.reply("❌ Error al acceder a los datos locales.");
+    } catch (replyErr) {
+      console.error("❌ Error al enviar respuesta:", replyErr.message);
+    }
   }
 });
 
