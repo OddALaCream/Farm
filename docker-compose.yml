@@ -25,8 +25,8 @@ services:
     volumes:
       - whatsapp_session:/app/.wwebjs_auth
       - ./data:/app/data
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
