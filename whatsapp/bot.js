@@ -89,22 +89,26 @@ client.on("disconnected", (reason) => {
 });
 
 client.on("message_create", async (msg) => {
-  if (msg.body === '!estado' || msg.body === '!alerta') {
+  const text = msg.body.trim().toLowerCase();
+  if (text === '!estado' || text === '!alerta') {
+    const chatId = msg.fromMe ? msg.to : msg.from;
+    console.log(`\n📥 Comando ${text} recibido en chat: ${chatId}`);
+    
     const sqlite3 = require('sqlite3').verbose();
     const DB_PATH = '/app/data/arbitrage.db';
     
     const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READONLY, (err) => {
       if (err) {
-        console.error("Error al abrir base de datos:", err.message);
-        msg.reply("❌ Error al acceder a los datos locales.");
+        console.error("❌ Error al abrir base de datos:", err.message);
+        client.sendMessage(chatId, "❌ Error al acceder a los datos locales.");
         return;
       }
     });
 
     db.get("SELECT * FROM operations ORDER BY id DESC LIMIT 1", (err, row) => {
       if (err) {
-        console.error("Error en query:", err);
-        msg.reply("❌ Error al leer la base de datos.");
+        console.error("❌ Error en query:", err);
+        client.sendMessage(chatId, "❌ Error al leer la base de datos.");
       } else if (row) {
         const sign = row.margen >= 0 ? "+" : "";
         
@@ -131,9 +135,10 @@ client.on("message_create", async (msg) => {
           "\n" +
           `_Última actualización: ${row.timestamp.split('T').join(' ').substring(0, 19)}_`;
           
-        msg.reply(message);
+        console.log("📤 Enviando respuesta de estado...");
+        client.sendMessage(chatId, message).catch(console.error);
       } else {
-        msg.reply("⚠️ Aún no hay datos registrados. El bot se está ejecutando.");
+        client.sendMessage(chatId, "⚠️ Aún no hay datos registrados. El bot se está ejecutando.");
       }
       db.close();
     });
