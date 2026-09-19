@@ -13,13 +13,21 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = os.environ.get("DB_PATH", "/app/data/arbitrage.db")
+_DB_DEFAULT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "data", "arbitrage.db")
+)
+
+
+def get_db_path() -> str:
+    """Retorna la ruta actual de la base de datos, respetando DB_PATH si está definido."""
+    return os.environ.get("DB_PATH") or _DB_DEFAULT
 
 
 def _get_connection() -> sqlite3.Connection:
     """Obtiene una conexión a la base de datos SQLite."""
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    db_path = get_db_path()
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -58,7 +66,7 @@ def init_db() -> None:
         """)
 
         conn.commit()
-        logger.info("Base de datos inicializada correctamente en %s", DB_PATH)
+        logger.info("Base de datos inicializada correctamente en %s", get_db_path())
 
     except sqlite3.Error as e:
         logger.error("Error al inicializar la base de datos: %s", str(e))
@@ -198,6 +206,27 @@ def get_last_alert() -> Optional[dict]:
         logger.error("Error al obtener última alerta: %s", str(e))
         return None
 
+    finally:
+        conn.close()
+
+
+def get_last_operation() -> Optional[dict]:
+    """Obtiene la última operación registrada."""
+    conn = _get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT * FROM operations
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        )
+        row = cursor.fetchone()
+        return dict(row) if row is not None else None
+    except sqlite3.Error as e:
+        logger.error("Error al obtener la última operación: %s", str(e))
+        return None
     finally:
         conn.close()
 

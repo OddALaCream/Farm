@@ -29,6 +29,19 @@ REQUEST_TIMEOUT = 15  # segundos
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # segundos entre reintentos
 
+SKRILL_PAY_TYPE = "SkrillMoneybookers"
+SKRILL_PAY_TYPES = {"skrill", "skrillmoneybookers"}
+
+
+def _normalize_pay_type(value: str) -> str:
+    """Normaliza nombres de método de pago para comparar sin importar el alias."""
+    return (value or "").strip().lower().replace("_", "").replace(" ", "")
+
+
+def _is_skrill_pay_type(value: Optional[str]) -> bool:
+    """True si el valor corresponde a Skrill en cualquiera de sus aliases."""
+    return _normalize_pay_type(value) in SKRILL_PAY_TYPES
+
 
 def fetch_p2p_ads(
     fiat: str,
@@ -65,7 +78,10 @@ def fetch_p2p_ads(
     }
 
     if pay_types:
-        payload["payTypes"] = pay_types
+        payload["payTypes"] = [
+            SKRILL_PAY_TYPE if _is_skrill_pay_type(pay_type) else pay_type
+            for pay_type in pay_types
+        ]
 
     if trans_amount is not None:
         payload["transAmount"] = trans_amount
@@ -186,6 +202,18 @@ def _parse_ads(ads_raw: list[dict]) -> list[dict]:
     return parsed
 
 
+def _is_skrill_only_ad(ad: dict) -> bool:
+    """True si el anuncio acepta únicamente Skrill como método de pago."""
+    methods = [method.strip() for method in ad.get("payment_methods", []) if method]
+    if not methods:
+        return False
+
+    return all(
+        _normalize_pay_type(method).startswith("skrill")
+        for method in methods
+    )
+
+
 def get_best_buy_price(
     fiat: str,
     asset: str = "USDT",
@@ -208,6 +236,14 @@ def get_best_buy_price(
 
     if not ads:
         return None
+
+    if pay_types and any(_is_skrill_pay_type(pay_type) for pay_type in pay_types):
+        ads = [ad for ad in ads if _is_skrill_only_ad(ad)]
+        if not ads:
+            logger.warning(
+                "No hay anuncios USD → USDT que acepten solo Skrill"
+            )
+            return None
 
     # El mejor precio de compra es el más bajo
     return min(ads, key=lambda x: x["price"])

@@ -20,7 +20,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || "").replace(/\D/g, "");
-const DB_PATH = process.env.DB_PATH || "/app/data/arbitrage.db";
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, "..", "data", "arbitrage.db");
 
 // Estado de la conexión
 let isReady = false;
