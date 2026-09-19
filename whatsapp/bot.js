@@ -88,7 +88,7 @@ client.on("disconnected", (reason) => {
   }, 10000);
 });
 
-client.on("message", async (msg) => {
+client.on("message_create", async (msg) => {
   if (msg.body === '!estado' || msg.body === '!alerta') {
     const sqlite3 = require('sqlite3').verbose();
     const DB_PATH = '/app/data/arbitrage.db';
