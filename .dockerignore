@@ -1,0 +1,11 @@
+.venv
+__pycache__
+*.pyc
+node_modules
+.wwebjs_auth
+.git
+.gitignore
+.env.example
+README.md
+*.log
+data/*.db

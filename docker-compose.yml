@@ -1,0 +1,43 @@
+services:
+
+  backend:
+    build: ./backend
+    container_name: arbitrage-backend
+    env_file: .env
+    environment:
+      - DB_PATH=/app/data/arbitrage.db
+      - WHATSAPP_SERVICE_URL=http://whatsapp:3000
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      whatsapp:
+        condition: service_started
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  whatsapp:
+    build: ./whatsapp
+    container_name: arbitrage-whatsapp
+    volumes:
+      - whatsapp_session:/app/.wwebjs_auth
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  whatsapp_session:

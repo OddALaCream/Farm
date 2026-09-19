@@ -1,0 +1,17 @@
+{
+  "name": "whatsapp-alert-service",
+  "version": "1.0.0",
+  "description": "Servicio de alertas WhatsApp para bot de arbitraje P2P",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.26.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
