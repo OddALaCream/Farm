@@ -26,13 +26,11 @@ let lastQR = null;
 
 // Limpiar SingletonLock de Chromium si existe por un mal apagado previo
 const lockPath = path.join("/app/.wwebjs_auth", "session", "SingletonLock");
-if (fs.existsSync(lockPath)) {
-  try {
-    fs.unlinkSync(lockPath);
-    console.log("🔓 Archivo SingletonLock eliminado (previniendo error Code 21)");
-  } catch (e) {
-    console.error("⚠️ No se pudo eliminar SingletonLock:", e.message);
-  }
+try {
+  fs.unlinkSync(lockPath);
+  console.log("🔓 Archivo SingletonLock eliminado (previniendo error Code 21)");
+} catch (e) {
+  // Ignorar si no existe
 }
 
 // Inicializar cliente WhatsApp con autenticación local persistente
