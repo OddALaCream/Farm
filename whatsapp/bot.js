@@ -66,30 +66,40 @@ function isFromOwner(msg) {
 
 /**
  * Verifica que el mensaje sea del chat "Mensaje a ti mismo".
+ * WhatsApp usa IDs @lid en ese chat; getChat() suele fallar ahí.
  */
 async function isSelfChatMessage(msg) {
-  const chat = await msg.getChat();
-  if (chat.isGroup) return false;
-
-  const chatId = chat.id._serialized;
-
-  if (msg.fromMe && msg.from === msg.to) return true;
-  if (ownWid && chatId === ownWid) return true;
-  if (isOwnNumber(chatId)) return true;
+  if (msg.fromMe && isOwnNumber(msg.from)) return true;
+  if (msg.fromMe && msg.to && msg.to.endsWith("@lid")) return true;
 
   try {
+    const chat = await msg.getChat();
+    if (chat.isGroup) return false;
+
+    const chatId = chat.id._serialized;
+    if (msg.fromMe && msg.from === msg.to) return true;
+    if (ownWid && chatId === ownWid) return true;
+    if (isOwnNumber(chatId)) return true;
+
     const contact = await chat.getContact();
     if (contact.isMe) return true;
-  } catch (_) {
-    // Algunas versiones de WA no exponen isMe de forma fiable
+  } catch (err) {
+    console.warn("getChat/getContact no disponible:", err.message);
   }
 
   return isFromOwner(msg);
 }
 
+function getReplyChatId(msg) {
+  if (msg.fromMe && msg.to) return msg.to;
+  if (msg.from) return msg.from;
+  return ownWid;
+}
+
 function markProcessed(msg) {
-  const id = msg.id?._serialized;
-  if (!id) return true;
+  const id =
+    msg.id?._serialized ||
+    `${msg.from}|${msg.to}|${msg.body}|${msg.timestamp}`;
 
   if (processedMessageIds.has(id)) return false;
 
@@ -99,15 +109,21 @@ function markProcessed(msg) {
 }
 
 async function replyInChat(msg, text) {
-  try {
-    await msg.reply(text);
-    return;
-  } catch (replyErr) {
-    console.warn("msg.reply falló, usando sendMessage:", replyErr.message);
+  const chatId = getReplyChatId(msg);
+  const targets = [chatId, msg.to, msg.from, ownWid].filter(Boolean);
+  const uniqueTargets = [...new Set(targets)];
+
+  for (const target of uniqueTargets) {
+    try {
+      await client.sendMessage(target, text);
+      console.log(`✅ Mensaje enviado a ${target}`);
+      return;
+    } catch (err) {
+      console.warn(`sendMessage(${target}) falló:`, err.message);
+    }
   }
 
-  const chat = await msg.getChat();
-  await chat.sendMessage(text);
+  throw new Error(`No se pudo enviar respuesta. Destinos probados: ${uniqueTargets.join(", ")}`);
 }
 
 function queryDb(sql) {
@@ -263,10 +279,8 @@ async function handleCommand(msg, source) {
       return;
     }
 
-    const chat = await msg.getChat();
-    console.log(
-      `📥 Comando ${text} aceptado en chat propio: ${chat.id._serialized}`
-    );
+    const chatId = getReplyChatId(msg);
+    console.log(`📥 Comando ${text} aceptado en chat propio: ${chatId}`);
 
     const sql =
       text === "!alerta"
@@ -292,10 +306,12 @@ async function handleCommand(msg, source) {
     console.log("✅ Respuesta enviada");
   } catch (err) {
     console.error("❌ Error procesando comando:", err.message);
+    if (err.stack) console.error(err.stack);
     try {
       await replyInChat(msg, "❌ Error al acceder a los datos locales.");
     } catch (replyErr) {
       console.error("❌ Error al enviar respuesta:", replyErr.message);
+      if (replyErr.stack) console.error(replyErr.stack);
     }
   }
 }
