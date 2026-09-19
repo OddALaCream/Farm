@@ -25,19 +25,57 @@ const DB_PATH = process.env.DB_PATH || "/app/data/arbitrage.db";
 // Estado de la conexión
 let isReady = false;
 let lastQR = null;
+let ownWid = null;
+const processedMessageIds = new Set();
+const COMMANDS = new Set(["!estado", "!alerta"]);
 
 function normalizePhone(id) {
   if (!id) return "";
   return String(id).split("@")[0].replace(/\D/g, "");
 }
 
+function getMessageText(msg) {
+  return (msg.body || "").trim().toLowerCase();
+}
+
+function isCommand(text) {
+  return COMMANDS.has(text);
+}
+
+function isOwnNumber(id) {
+  if (!id) return false;
+
+  const normalized = normalizePhone(id);
+  if (!normalized) return false;
+
+  if (WHATSAPP_NUMBER && normalized === WHATSAPP_NUMBER) return true;
+  if (ownWid && id === ownWid) return true;
+
+  if (WHATSAPP_NUMBER && normalized.endsWith(WHATSAPP_NUMBER.slice(-8))) {
+    return true;
+  }
+
+  return false;
+}
+
+function isFromOwner(msg) {
+  if (msg.fromMe) return true;
+  if (isOwnNumber(msg.from)) return true;
+  return false;
+}
+
 /**
  * Verifica que el mensaje sea del chat "Mensaje a ti mismo".
- * Solo responde comandos enviados por ti en tu propio chat.
  */
 async function isSelfChatMessage(msg) {
   const chat = await msg.getChat();
   if (chat.isGroup) return false;
+
+  const chatId = chat.id._serialized;
+
+  if (msg.fromMe && msg.from === msg.to) return true;
+  if (ownWid && chatId === ownWid) return true;
+  if (isOwnNumber(chatId)) return true;
 
   try {
     const contact = await chat.getContact();
@@ -46,13 +84,30 @@ async function isSelfChatMessage(msg) {
     // Algunas versiones de WA no exponen isMe de forma fiable
   }
 
-  if (!WHATSAPP_NUMBER) return true;
+  return isFromOwner(msg);
+}
 
-  const chatPhone = normalizePhone(chat.id._serialized);
-  return (
-    chatPhone === WHATSAPP_NUMBER ||
-    chatPhone.endsWith(WHATSAPP_NUMBER.slice(-8))
-  );
+function markProcessed(msg) {
+  const id = msg.id?._serialized;
+  if (!id) return true;
+
+  if (processedMessageIds.has(id)) return false;
+
+  processedMessageIds.add(id);
+  setTimeout(() => processedMessageIds.delete(id), 60000);
+  return true;
+}
+
+async function replyInChat(msg, text) {
+  try {
+    await msg.reply(text);
+    return;
+  } catch (replyErr) {
+    console.warn("msg.reply falló, usando sendMessage:", replyErr.message);
+  }
+
+  const chat = await msg.getChat();
+  await chat.sendMessage(text);
 }
 
 function queryDb(sql) {
@@ -117,6 +172,11 @@ const client = new Client({
   authStrategy: new LocalAuth({
     dataPath: "/app/.wwebjs_auth",
   }),
+  webVersionCache: {
+    type: "remote",
+    remotePath:
+      "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1047947458-alpha.html",
+  },
   puppeteer: {
     headless: true,
     args: [
@@ -151,9 +211,12 @@ client.on("qr", (qr) => {
 client.on("ready", () => {
   isReady = true;
   lastQR = null;
+  ownWid = client.info?.wid?._serialized || null;
   console.log("");
   console.log("=".repeat(50));
   console.log("  ✅ WHATSAPP CONECTADO Y LISTO");
+  console.log(`  📱 Cuenta: ${ownWid || "desconocida"}`);
+  console.log("  ⌨️  Comandos activos: !estado, !alerta (chat contigo mismo)");
   console.log("=".repeat(50));
   console.log("");
 });
@@ -178,14 +241,19 @@ client.on("disconnected", (reason) => {
   }, 10000);
 });
 
-client.on("message_create", async (msg) => {
-  if (!isReady || !msg.body) return;
+async function handleCommand(msg, source) {
+  const text = getMessageText(msg);
+  if (!isCommand(text)) return;
+  if (!markProcessed(msg)) return;
 
-  // Solo comandos que tú envías desde tu celular
-  if (!msg.fromMe) return;
+  console.log(
+    `[CMD] ${source} | fromMe=${msg.fromMe} | from=${msg.from} | to=${msg.to} | body="${text}"`
+  );
 
-  const text = msg.body.trim().toLowerCase();
-  if (text !== "!estado" && text !== "!alerta") return;
+  if (!isFromOwner(msg)) {
+    console.log(`Comando ${text} ignorado: remitente no autorizado`);
+    return;
+  }
 
   try {
     if (!(await isSelfChatMessage(msg))) {
@@ -197,7 +265,7 @@ client.on("message_create", async (msg) => {
 
     const chat = await msg.getChat();
     console.log(
-      `\n📥 Comando ${text} detectado en chat propio: ${chat.id._serialized}`
+      `📥 Comando ${text} aceptado en chat propio: ${chat.id._serialized}`
     );
 
     const sql =
@@ -212,7 +280,7 @@ client.on("message_create", async (msg) => {
         text === "!alerta"
           ? "⚠️ Aún no se ha enviado ninguna alerta."
           : "⚠️ Aún no hay datos registrados. El bot se está ejecutando.";
-      await msg.reply(emptyMessage);
+      await replyInChat(msg, emptyMessage);
       return;
     }
 
@@ -220,15 +288,30 @@ client.on("message_create", async (msg) => {
       text === "!alerta" ? "🚨 *ÚLTIMA ALERTA P2P*" : "📊 *ESTADO ACTUAL P2P*";
 
     console.log("📤 Enviando respuesta...");
-    await msg.reply(formatStatusMessage(row, title));
+    await replyInChat(msg, formatStatusMessage(row, title));
+    console.log("✅ Respuesta enviada");
   } catch (err) {
     console.error("❌ Error procesando comando:", err.message);
     try {
-      await msg.reply("❌ Error al acceder a los datos locales.");
+      await replyInChat(msg, "❌ Error al acceder a los datos locales.");
     } catch (replyErr) {
       console.error("❌ Error al enviar respuesta:", replyErr.message);
     }
   }
+}
+
+// message_create: captura mensajes propios enviados desde el celular
+client.on("message_create", (msg) => {
+  handleCommand(msg, "message_create").catch((err) => {
+    console.error("❌ Error en message_create:", err.message);
+  });
+});
+
+// message: captura mensajes sincronizados que llegan con fromMe=false
+client.on("message", (msg) => {
+  handleCommand(msg, "message").catch((err) => {
+    console.error("❌ Error en message:", err.message);
+  });
 });
 
 // ===== Endpoints HTTP =====
